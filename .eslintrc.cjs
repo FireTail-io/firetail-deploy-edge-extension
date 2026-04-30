@@ -1,6 +1,13 @@
 module.exports = {
   root: true,
-  extends: ['wdzeng/typescript'],
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    'plugin:unicorn/recommended',
+    'plugin:prettier/recommended'
+  ],
+  parser: '@typescript-eslint/parser',
+  plugins: ['@typescript-eslint', 'unicorn', 'prettier'],
   env: {
     browser: false,
     es2022: true,

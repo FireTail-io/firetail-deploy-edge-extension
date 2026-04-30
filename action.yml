@@ -1,14 +1,14 @@
 name: Publish Edge Add-on
-author: hyperbola
+author: FireTail
 description: Publish add-on onto Edge Add-ons
 
 inputs:
   product-id:
     description: Product ID of the add-on.
-    required: false
+    required: true
   zip-path:
     description: Path to the zip file of the add-on.
-    required: false
+    required: true
   api-key:
     description: Edge publish API key.
     required: true
