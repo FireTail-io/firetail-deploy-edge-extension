@@ -5,6 +5,7 @@ import axios from 'axios'
 import type { PublishStatusResponse } from '@/api-types/publish'
 import type { UploadStatusResponse } from '@/api-types/upload'
 import {
+  ERR_INVALID_INPUT,
   ERR_PUBLISHING_PACKAGE,
   ERR_UPLOADING_PACKAGE,
   EdgeAddonActionError,
@@ -15,6 +16,28 @@ import { logger } from '@/utils'
 const WAIT_DELAY = 10 // 10 seconds
 const MAX_WAIT_TIME = 10 * 60 // 10 minutes
 
+// Validates that a value looks like a safe URL path segment (alphanumeric, hyphens, underscores, dots).
+function validatePathSegment(value: string, name: string): void {
+  if (!/^[\w./-]+$/.test(value)) {
+    throw new EdgeAddonActionError(
+      `Invalid ${name}: contains disallowed characters.`,
+      ERR_INVALID_INPUT
+    )
+  }
+}
+
+// Redact sensitive headers (Authorization, X-ClientID) from a headers object before logging.
+function redactHeaders(headers: Record<string, unknown>): Record<string, unknown> {
+  const redacted = { ...headers }
+  for (const key of Object.keys(redacted)) {
+    const lower = key.toLowerCase()
+    if (lower === 'authorization' || lower === 'x-clientid') {
+      redacted[key] = '[REDACTED]'
+    }
+  }
+  return redacted
+}
+
 async function sendUploadPackageRequest(
   productId: string,
   zipPath: string,
@@ -23,6 +46,7 @@ async function sendUploadPackageRequest(
 ): Promise<string> {
   // https://learn.microsoft.com/en-us/microsoft-edge/extensions-chromium/publish/api/addons-api-reference?tabs=v1-1#upload-a-package-to-update-an-existing-submission
   // https://learn.microsoft.com/en-us/microsoft-edge/extensions-chromium/publish/api/using-addons-api?tabs=v1-1#uploading-a-package-to-update-an-existing-submission
+  validatePathSegment(productId, 'product-id')
   logger.info('Uploading package.')
   const url = `https://api.addons.microsoftedge.microsoft.com/v1/products/${productId}/submissions/draft/package`
   const zipStream = fs.createReadStream(zipPath)
@@ -31,17 +55,21 @@ async function sendUploadPackageRequest(
     'Authorization': `ApiKey ${apiKey}`,
     'X-ClientID': clientId
   }
-  const response = await axios.post<never>(url, zipStream, { headers }) // 202 Accepted
+  const response = await axios.post<never>(url, zipStream, {
+    headers,
+    maxRedirects: 0
+  }) // 202 Accepted
 
   const operationId = response.headers.location as string | undefined
   if (!operationId) {
-    logger.debug(JSON.stringify(response.headers))
+    logger.debug(JSON.stringify(redactHeaders(response.headers as Record<string, unknown>)))
     throw new EdgeAddonActionError(
       'Failed to upload the add-on. The API server does not provide operation ID.',
       ERR_UPLOADING_PACKAGE
     )
   }
 
+  validatePathSegment(operationId, 'operation-id')
   logger.info('Package uploaded.')
   return operationId
 }
@@ -63,7 +91,7 @@ async function waitUntilPackageValidated(
   while (Date.now() < endTime) {
     logger.info('Checking if operation has succeeded.')
 
-    const axiosResponse = await axios<UploadStatusResponse>(url, { headers })
+    const axiosResponse = await axios<UploadStatusResponse>(url, { headers, maxRedirects: 0 })
     response = axiosResponse.data
     if (response.status !== 'InProgress') {
       break
@@ -75,7 +103,7 @@ async function waitUntilPackageValidated(
 
   // Try for the last time.
   if (response === undefined) {
-    const axiosResponse = await axios<UploadStatusResponse>(url, { headers })
+    const axiosResponse = await axios<UploadStatusResponse>(url, { headers, maxRedirects: 0 })
     response = axiosResponse.data
   }
 
@@ -121,20 +149,23 @@ async function sendPackagePublishingRequest(
 ): Promise<string> {
   // https://learn.microsoft.com/en-us/microsoft-edge/extensions-chromium/publish/api/addons-api-reference?tabs=v1-1#publish-the-product-draft-submission
   // https://learn.microsoft.com/en-us/microsoft-edge/extensions-chromium/publish/api/using-addons-api?tabs=v1-1#publishing-the-submission
+  validatePathSegment(productId, 'product-id')
   logger.info('Sending publishing request.')
   const url = `https://api.addons.microsoftedge.microsoft.com/v1/products/${productId}/submissions`
   const response = await axios.post<never>(url, notesForCertification, {
-    headers: { 'Authorization': `ApiKey ${apiKey}`, 'X-ClientID': clientId }
+    headers: { 'Authorization': `ApiKey ${apiKey}`, 'X-ClientID': clientId },
+    maxRedirects: 0
   })
 
   const operationId = response.headers.location as string | undefined
   if (!operationId) {
-    logger.debug(JSON.stringify(response.headers))
+    logger.debug(JSON.stringify(redactHeaders(response.headers as Record<string, unknown>)))
     throw new EdgeAddonActionError(
       'Failed to publish the add-on. The API server does not provide operation ID.',
       ERR_PUBLISHING_PACKAGE
     )
   }
+  validatePathSegment(operationId, 'operation-id')
   logger.info('Publishing request sent.')
   return operationId
 }
@@ -155,7 +186,7 @@ async function waitUntilPackagePublished(
   while (Date.now() < endTime) {
     logger.info('Checking if the publishing operation has succeeded.')
 
-    const axiosResponse = await axios<PublishStatusResponse>(url, { headers })
+    const axiosResponse = await axios<PublishStatusResponse>(url, { headers, maxRedirects: 0 })
     response = axiosResponse.data
 
     if (!('status' in response) || response.status !== 'InProgress') {
@@ -168,7 +199,7 @@ async function waitUntilPackagePublished(
 
   // Try for the last time.
   if (response === undefined) {
-    const axiosResponse = await axios<PublishStatusResponse>(url, { headers })
+    const axiosResponse = await axios<PublishStatusResponse>(url, { headers, maxRedirects: 0 })
     response = axiosResponse.data
   }
 
