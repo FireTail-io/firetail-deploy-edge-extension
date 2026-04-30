@@ -18,7 +18,7 @@ const MAX_WAIT_TIME = 10 * 60 // 10 minutes
 
 // Validates that a value looks like a safe URL path segment (alphanumeric, hyphens, underscores, dots).
 function validatePathSegment(value: string, name: string): void {
-  if (!/^[\w./-]+$/.test(value)) {
+  if (!/^[\w.-]+$/.test(value)) {
     throw new EdgeAddonActionError(
       `Invalid ${name}: contains disallowed characters.`,
       ERR_INVALID_INPUT
